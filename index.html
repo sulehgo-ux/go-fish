@@ -1,4 +1,8 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Go Fish</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -121,6 +125,28 @@ button.seat{cursor:pointer}
 .hand .card{box-shadow:-3px 0 5px rgba(0,0,0,.25),0 2px 0 rgba(0,0,0,.18)}
 .hand .card.pick{box-shadow:0 0 0 2px var(--accent),-3px 0 5px rgba(0,0,0,.25)}
 .hand .card:focus-visible{z-index:2}
+.tracker{display:grid;gap:10px}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.trank{border:1px solid var(--line);border-radius:10px;padding:7px 9px;display:grid;gap:6px;min-width:0}
+.trank.full{border-color:var(--accent);background:var(--accent-soft)}
+.trank .rh{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.trank b{font:800 20px/1 var(--f-display)}
+.trank .ct{font:600 12px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.tsuits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+.ts{position:relative;aspect-ratio:1;display:grid;place-items:center;border:1px solid var(--line);border-radius:6px;font:800 16px/1 var(--f-display);color:var(--suit-black);background:var(--paper);opacity:.4}
+.ts.red{color:var(--suit-red)}
+.ts.got{opacity:1;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.ts.got::after{content:"\2713\FE0E";position:absolute;top:-6px;right:-5px;width:15px;height:15px;border-radius:50%;background:var(--accent);color:var(--on-accent);font:800 10px/15px var(--f-body);text-align:center}
+.celebrate{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:15}
+.celbanner{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:16;padding:16px;animation:celfade 5s ease forwards}
+.celbanner span{max-width:92vw;background:var(--ink);color:var(--felt);font:800 clamp(30px,10vw,56px)/1.05 var(--f-display);text-align:center;
+  padding:14px 22px;border-radius:16px;overflow-wrap:anywhere;box-shadow:0 10px 30px rgba(0,0,0,.3);animation:celpop .45s cubic-bezier(.2,1.4,.4,1) both}
+.celbanner span small{display:block;margin-top:8px;font:600 clamp(15px,4.4vw,20px)/1.2 var(--f-body);opacity:.85}
+@keyframes celpop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes celfade{0%,80%{opacity:1}100%{opacity:0}}
+.celpick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.celpick .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent)}
+.done .fan{justify-content:center}
 .done{border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:12px}
 .skip{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
 .actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
@@ -129,6 +155,9 @@ button.seat{cursor:pointer}
 @media (prefers-reduced-motion:reduce){.card{transition:none}}
 </style>
 
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
 <div id="app"></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -149,9 +178,9 @@ function shuffle(a){var r=a.slice();for(var i=r.length-1;i>0;i--){var j=Math.flo
 function newGame(players,host,seq){
   var deck=[];SUITS.forEach(function(s){RANKS.forEach(function(r){deck.push(r+s);});});
   deck=shuffle(deck);
-  var hands={},names={};
-  players.forEach(function(p){hands[p.id]=deck.splice(0,3);names[p.id]=p.name;});
-  return {status:'playing',host:host,order:players.map(function(p){return p.id;}),names:names,hands:hands,deck:deck,
+  var hands={},names={},won={};
+  players.forEach(function(p){hands[p.id]=deck.splice(0,3);names[p.id]=p.name;won[p.id]=[];});
+  return {status:'playing',host:host,order:players.map(function(p){return p.id;}),names:names,hands:hands,won:won,deck:deck,
     turn:0,winner:null,winRank:null,log:[names[players[0].id]+' goes first.'],turnAt:Date.now(),seq:(seq||0)+1};
 }
 function logAdd(g,t){g.log.push(t);g.log=g.log.slice(-4);}
@@ -170,12 +199,13 @@ function checkWin(g,firstId){
   return false;
 }
 function advance(g){
+  if(!g.won)g.won={};
   var n=g.order.length;
   for(var k=0;k<n;k++){
     g.turn=(g.turn+1)%n;
     var id=g.order[g.turn];
     if(!g.hands[id].length){
-      if(g.deck.length){g.hands[id].push(g.deck.pop());logAdd(g,g.names[id]+' had no cards and drew one.');}
+      if(g.deck.length){var dc=g.deck.pop();g.hands[id].push(dc);g.won[id]=(g.won[id]||[]).concat([dc]);logAdd(g,g.names[id]+' had no cards and drew one.');}
       else continue;
     }
     break;
@@ -188,19 +218,22 @@ function doAsk(g0,pid,target,r){
   if(target===pid||g.order.indexOf(target)<0)return null;
   var mine=g.hands[pid];
   if(!mine.some(function(c){return rank(c)===r;}))return null;
+  if(!g.won)g.won={};
   var theirs=g.hands[target];
   var given=theirs.filter(function(c){return rank(c)===r;});
   var A=g.names[pid],T=g.names[target];
   if(given.length){
     g.hands[target]=theirs.filter(function(c){return rank(c)!==r;});
     g.hands[pid]=mine.concat(given);
+    g.won[target]=(g.won[target]||[]).filter(function(c){return rank(c)!==r;});
+    g.won[pid]=(g.won[pid]||[]).concat(given);
     logAdd(g,A+' asked '+T+' for '+rp(r)+'. '+T+' gave '+given.length+'.');
     g.turnAt=Date.now();g.seq++;
     checkWin(g,pid);
     return g;
   }
   var msg=A+' asked '+T+' for '+rp(r)+'. Go fish!';
-  if(g.deck.length){g.hands[pid].push(g.deck.pop());msg+=' '+A+' drew a card.';}
+  if(g.deck.length){var fc=g.deck.pop();g.hands[pid].push(fc);g.won[pid]=(g.won[pid]||[]).concat([fc]);msg+=' '+A+' drew a card.';}
   else msg+=' The pile is empty.';
   logAdd(g,msg);
   if(checkWin(g,pid))return g;
@@ -229,9 +262,9 @@ function botMove(g,pid){
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
 function esc(s){return String(s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});}
-var S={screen:'home',mode:null,name:lsGet('gofish.name')||'',joinCode:'',code:'',pid:null,db:null,dbState:'pending',
+var S={screen:'home',mode:null,name:lsGet('gofish.name')||'',cel:lsGet('gofish.cel')||'confetti',celKey:'',access:undefined,unlock:lsGet('gofish.unlock')||'',isAdmin:false,pwTry:'',pwNew:'',msg:'',joinCode:'',code:'',pid:null,db:null,dbState:'pending',
   game:null,players:[],target:null,pick:null,busy:false,working:false,err:'',gameRef:null,unsubs:[]};
-var BOT_NAMES=['Amina','Otieno','Wanjiru'];
+var BOT_NAMES=['Amina','Otieno','Njeri','Kamau','Zawadi','Baraka'];
 var botTimer=null,toastTimer=null;
 var app=document.getElementById('app');
 
@@ -267,7 +300,72 @@ function header(){
   return '<header class="top"><span class="brand">'+(S.screen==='home'?'':'Go Fish')+'</span><span class="r">'+chip+
     (inRoom?'<button class="btn small" type="button" data-act="leave">Leave</button>':'')+'</span></header>';
 }
+/* ---------- access password ---------- */
+function b64(buf){var a=new Uint8Array(buf),s='',i;for(i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s);}
+function randSalt(){var a=new Uint8Array(16);crypto.getRandomValues(a);return b64(a);}
+async function hashPw(pw,salt,iter){
+  var enc=new TextEncoder();
+  var key=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveBits']);
+  var bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:enc.encode(salt),iterations:iter},key,256);
+  return b64(bits);
+}
+function gateState(){
+  if(S.dbState==='pending')return 'checking';
+  if(S.dbState!=='yes')return 'open';
+  if(S.access===undefined)return 'checking';
+  if(!S.access)return 'open';
+  if(S.isAdmin)return 'open';
+  return S.unlock===S.access.hash?'open':'locked';
+}
+function gateView(){
+  if(gateState()==='checking')return '<section class="panel"><h1>Go Fish</h1><p class="sub">Connecting…</p></section>';
+  return '<section class="panel"><div class="fan" aria-hidden="true">'+face('8S','div','')+face('8H','div','')+face('8D','div','')+face('8C','div','')+'</div>'+
+    '<h1>Go Fish</h1><p class="sub">This game is private. Enter the password you were given with the link.</p></section>'+
+    '<section class="panel"><label class="lbl" for="pwIn">Password</label>'+
+    '<input id="pwIn" type="password" autocomplete="off" value="'+esc(S.pwTry)+'">'+
+    '<button class="btn primary" type="button" data-act="unlock">Let me in</button>'+
+    (S.err?'<p class="err" role="alert">'+esc(S.err)+'</p>':'')+'</section>';
+}
+function ownerPanel(){
+  if(!S.isAdmin||S.dbState!=='yes')return '';
+  var on=!!S.access;
+  return '<section class="panel"><span class="lbl">Access password</span>'+
+    '<p class="sub">'+(on?'A password is set. Players must enter it before they can play.':'No password is set. Anyone who opens the link can play.')+'</p>'+
+    '<input id="pwNew" type="text" autocomplete="off" maxlength="40" placeholder="'+(on?'New password':'Choose a password')+'" value="'+esc(S.pwNew)+'" aria-label="Access password">'+
+    '<div class="celpick"><button class="btn small" type="button" data-act="setpw">'+(on?'Change password':'Set password')+'</button>'+
+    (on?'<button class="btn small" type="button" data-act="rmpw">Remove password</button>':'')+'</div>'+
+    (S.msg?'<p class="note">'+esc(S.msg)+'</p>':'')+'</section>';
+}
+async function tryUnlock(){
+  var pw=S.pwTry||'';
+  if(!pw||!S.access)return;
+  try{
+    var h=await hashPw(pw,S.access.salt,S.access.iter);
+    if(h===S.access.hash){S.unlock=h;lsSet('gofish.unlock',h);S.err='';S.pwTry='';render();tryResume();return;}
+    S.err='That password is not right.';
+  }catch(e){S.err='This browser cannot check the password.';}
+  render();
+}
+async function setPassword(){
+  var pw=(S.pwNew||'').trim();
+  S.err='';S.msg='';
+  if(pw.length<4){S.err='Use at least 4 characters.';render();return;}
+  try{
+    var salt=randSalt(),iter=100000,h=await hashPw(pw,salt,iter);
+    await S.db.doc('config/access').set({salt:salt,iter:iter,hash:h,updated:Date.now()});
+    S.unlock=h;lsSet('gofish.unlock',h);S.pwNew='';
+    S.msg='Password saved. Share it with players along with the link.';
+  }catch(e){S.err='Could not save the password. Only the owner or an editor of this page can set it.';}
+  render();
+}
+async function removePassword(){
+  S.err='';S.msg='';
+  try{await S.db.doc('config/access').delete();S.msg='Password removed. Anyone with the link can play.';}
+  catch(e){S.err='Could not remove the password.';}
+  render();
+}
 function homeView(){
+  if(gateState()!=='open')return gateView();
   var online=S.dbState==='yes';
   var dis=(!online||S.working)?' disabled':'';
   var note='';
@@ -284,12 +382,17 @@ function homeView(){
   '<button class="btn" type="button" data-act="join"'+dis+'>Join</button></div>'+
   (S.err?'<p class="err" role="alert">'+esc(S.err)+'</p>':'')+
   (note?'<p class="note">'+esc(note)+'</p>':'')+'</section>'+
+  '<section class="panel"><span class="lbl">Win celebration</span><div class="celpick" role="group" aria-label="Win celebration">'+
+  [['confetti','Confetti'],['laugh','😂 Laughing'],['fish','🐟 Fish rain'],['off','Off']].map(function(o){
+    return '<button class="btn small" type="button" data-act="cel" data-v="'+o[0]+'" aria-pressed="'+(S.cel===o[0])+'">'+o[1]+'</button>';
+  }).join('')+'</div><div class="celpick"><button class="btn small" type="button" data-act="preview"'+(S.cel==='off'?' disabled':'')+'>Preview win</button>'+
+  '<button class="btn small" type="button" data-act="previewlose"'+(S.cel==='off'?' disabled':'')+'>Preview loss</button></div></section>'+
   '<section class="panel"><span class="lbl">Practice on this phone</span><div class="bots">'+
-  '<button class="btn" type="button" data-act="practice" data-n="1">1 bot</button>'+
-  '<button class="btn" type="button" data-act="practice" data-n="2">2 bots</button>'+
-  '<button class="btn" type="button" data-act="practice" data-n="3">3 bots</button></div></section>'+
+  [2,3,4,5,6].map(function(n){return '<button class="btn" type="button" data-act="practice" data-n="'+n+'">'+n+' bots</button>';}).join('')+
+  '</div><p class="note">You plus 2 to 6 bots makes the 3 to 7 players the game needs.</p></section>'+
+  ownerPanel()+
   '<details><summary>How to play</summary><ul>'+
-  '<li>Everyone starts with 3 cards. The rest make the pile.</li>'+
+  '<li>The game takes 3 to 7 players. Everyone starts with 3 cards, and the rest make the pile.</li>'+
   '<li>On your turn, tap a player, tap a card from your hand, then tap Ask. You are asking for every card of that rank.</li>'+
   '<li>If they have it, they hand it over and you ask again.</li>'+
   '<li>If they do not, go fish: you take one card from the pile and your turn ends.</li>'+
@@ -305,11 +408,11 @@ function lobbyView(){
   }).join('');
   return ''+
   '<section class="panel"><span class="lbl">Table code</span><p class="code">'+esc(S.code)+'</p>'+
-  '<p class="sub">Friends open this same page, tap Join and type the code. Up to 4 players.</p>'+
+  '<p class="sub">Friends open this same page, tap Join and type the code. The game needs 3 to 7 players.</p>'+
   '<div class="actions" style="justify-content:flex-start"><button class="btn small" type="button" data-act="copy">Copy code</button></div></section>'+
-  '<section class="panel"><span class="lbl">Players ('+S.players.length+'/4)</span><ul class="plist">'+(items||'<li><span>Joining…</span></li>')+'</ul></section>'+
-  (isHost?'<button class="btn primary" type="button" data-act="start"'+(S.players.length<2?' disabled':'')+'>Deal the cards</button>'+
-    (S.players.length<2?'<p class="note">Waiting for at least one more player.</p>':''):
+  '<section class="panel"><span class="lbl">Players ('+S.players.length+'/7)</span><ul class="plist">'+(items||'<li><span>Joining…</span></li>')+'</ul></section>'+
+  (isHost?'<button class="btn primary" type="button" data-act="start"'+(S.players.length<3?' disabled':'')+'>Deal the cards</button>'+
+    (S.players.length<3?'<p class="note">Need '+(3-S.players.length)+' more player'+(S.players.length===2?'':'s')+' to start. The game takes 3 to 7 players.</p>':''):
     '<p class="note">Waiting for the host to deal.</p>');
 }
 function statusText(g,me){
@@ -318,6 +421,13 @@ function statusText(g,me){
   var cur=g.order[g.turn];
   if(cur!==me)return 'Waiting for '+esc(g.names[cur])+'…';
   return 'Your turn.';
+}
+function bestLine(g,me){
+  if(g.status!=='done'||g.winner===me||g.order.indexOf(me)<0)return '';
+  var c={},best=null;
+  (g.hands[me]||[]).forEach(function(x){var r=rank(x);c[r]=(c[r]||0)+1;if(!best||c[r]>c[best])best=r;});
+  if(!best||c[best]<2)return ' You had no matching cards.';
+  return ' Your best set was '+c[best]+' '+rp(best)+'.';
 }
 function tableView(){
   var g=S.game;if(!g)return '<p class="note">Loading…</p>';
@@ -358,9 +468,10 @@ function tableView(){
   var bottom='';
   if(g.status==='done'){
     var canAgain=S.mode==='local'||g.host===S.pid;
-    bottom='<div class="done"><h2>'+(g.winner===me?'You win!':esc(g.names[g.winner])+' wins')+'</h2>'+
-      '<p class="sub">All four '+rp(g.winRank)+' ended up in '+(g.winner===me?'your':esc(g.names[g.winner])+'’s')+' hand.</p>'+
+    bottom='<div class="done"><div class="fan" aria-hidden="true">'+SUITS.map(function(s){return face(g.winRank+s,'div','');}).join('')+'</div><h2>'+(g.winner===me?'You win!':esc(g.names[g.winner])+' wins')+'</h2>'+
+      '<p class="sub">All four '+rp(g.winRank)+' ended up in '+(g.winner===me?'your':esc(g.names[g.winner])+'’s')+' hand.'+bestLine(g,me)+'</p>'+
       '<div class="actions">'+(canAgain?'<button class="btn primary" type="button" data-act="again">Play again</button>':'<span class="note">Waiting for the host to start another round.</span>')+
+      '<button class="btn" type="button" data-act="replay"'+(S.cel==='off'?' disabled':'')+'>Celebrate again</button>'+
       '<button class="btn" type="button" data-act="leave">Leave table</button></div></div>';
   }else{
     bottom=askPanel+'<div class="lbl" style="text-align:center">Your hand · '+hand.length+'</div>'+
@@ -369,13 +480,92 @@ function tableView(){
   var logHtml=g.log.slice(-3).map(function(l){return '<li>'+esc(l)+'</li>';}).join('');
   return '<div class="seats">'+seats+'</div>'+center+
     '<p class="status" aria-live="polite">'+statusText(g,me)+'</p><ol class="log">'+logHtml+'</ol>'+
-    '<p class="skip" id="skipWrap" hidden><span id="skipTxt"></span><button class="btn small" type="button" data-act="skip">Skip turn</button></p>'+bottom;
+    '<p class="skip" id="skipWrap" hidden><span id="skipTxt"></span><button class="btn small" type="button" data-act="skip">Skip turn</button></p>'+bottom+trackerHtml(g,me,hand);
+}
+function trackerHtml(g,me,hand){
+  if(g.order.indexOf(me)<0)return '';
+  var held={},wonSet={};
+  hand.forEach(function(c){held[c]=true;});
+  ((g.won&&g.won[me])||[]).forEach(function(c){wonSet[c]=true;});
+  var cells=RANKS.map(function(r){
+    var full=(g.status==='done'&&g.winRank===r);
+    var boxes=SUITS.map(function(s){
+      var got=full;
+      return '<span class="ts'+(isRed(s)?' red':'')+(got?' got':'')+'" role="img" aria-label="'+r+' of '+SUITNAME[s]+(got?', won':'')+'">'+GLYPH[s]+'</span>';
+    }).join('');
+    return '<div class="trank'+(full?' full':'')+'"><div class="rh"><b>'+r+'</b>'+(full?'<span class="ct">4/4</span>':'')+'</div><div class="tsuits">'+boxes+'</div></div>';
+  }).join('');
+  return '<section class="tracker"><span class="lbl" style="text-align:center">Card checklist · Ace to King</span><div class="tgrid">'+cells+'</div>'+
+    '<p class="note" style="text-align:center">When a player collects all four cards of a rank, that rank is ticked for everyone and the game is won.</p></section>';
+}
+var bannerTimer=null;
+function celebrate(style,text,sub,mood){
+  if(style==='off')return;
+  try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;}catch(e){}
+  var old=document.getElementById('celCanvas');if(old)old.remove();
+  var cv=document.createElement('canvas');cv.id='celCanvas';cv.className='celebrate';cv.setAttribute('aria-hidden','true');
+  document.body.appendChild(cv);
+  var oldB=document.getElementById('celBanner');if(oldB)oldB.remove();
+  clearTimeout(bannerTimer);
+  if(text){
+    var bn=document.createElement('div');bn.id='celBanner';bn.className='celbanner';bn.setAttribute('aria-hidden','true');
+    var sp=document.createElement('span');sp.textContent=text;
+    if(sub){var sm=document.createElement('small');sm.textContent=sub;sp.appendChild(sm);}
+    bn.appendChild(sp);
+    document.body.appendChild(bn);
+    bannerTimer=setTimeout(function(){bn.remove();},5200);
+  }
+  var dpr=Math.min(2,window.devicePixelRatio||1),W=window.innerWidth,H=window.innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  var ctx=cv.getContext('2d');if(!ctx){cv.remove();return;}
+  ctx.scale(dpr,dpr);
+  var cols=['#e5484d','#f5a524','#2eb67d','#2c78a8','#ff9466','#8e4ec6'];
+  var glyphs=style==='laugh'?['😂']:style==='fish'?['🐟','🐠','🎣']:null;
+  if(mood==='lose')glyphs=['👏'];
+  var N=mood==='lose'?26:(glyphs?38:150),ps=[],i;
+  for(i=0;i<N;i++){
+    ps.push({x:Math.random()*W,y:-20-Math.random()*H*0.9,vx:(Math.random()-.5)*1.6,vy:(mood==='lose'?1.2:2)+Math.random()*(mood==='lose'?1.8:3.2),
+      r:Math.random()*6.28,vr:(Math.random()-.5)*.25,s:glyphs?24+Math.random()*20:6+Math.random()*7,
+      c:cols[Math.floor(Math.random()*cols.length)],g:glyphs?glyphs[Math.floor(Math.random()*glyphs.length)]:null});
+  }
+  var t0=performance.now();
+  function frame(now){
+    var t=now-t0;ctx.clearRect(0,0,W,H);
+    var alive=false;
+    ps.forEach(function(p){
+      p.x+=p.vx+Math.sin((t+p.s*50)/400)*0.8;p.y+=p.vy;p.r+=p.vr;
+      if(p.y<H+40)alive=true;
+      ctx.save();ctx.translate(p.x,p.y);
+      if(p.g){
+        ctx.rotate(Math.sin(p.r)*0.4);
+        ctx.font=Math.round(p.s)+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(p.g,0,0);
+      }else{
+        ctx.rotate(p.r);ctx.fillStyle=p.c;ctx.fillRect(-p.s/2,-p.s/4,p.s,p.s/2);
+      }
+      ctx.restore();
+    });
+    if(alive&&t<8000)requestAnimationFrame(frame);else cv.remove();
+  }
+  requestAnimationFrame(frame);
+}
+function playWin(g){
+  var me=myId(),won=g.winner===me,inGame=g.order.indexOf(me)>=0;
+  var text=(g.names[g.winner]||'Winner')+' wins!';
+  if(won)celebrate(S.cel,text);
+  else celebrate(S.cel,text,inGame?'Better luck next time!':'','lose');
+}
+function maybeCelebrate(){
+  var g=S.game;if(!g||g.status!=='done')return;
+  var key=(S.code||'local')+':'+g.seq;
+  if(S.celKey===key)return;
+  S.celKey=key;playWin(g);
 }
 function render(){
   var body=S.screen==='home'?homeView():S.screen==='lobby'?lobbyView():tableView();
   app.innerHTML='<div class="wrap">'+header()+body+'</div>';
   updateSkip();
-  if(S.screen==='table')botTick();
+  if(S.screen==='table'){botTick();maybeCelebrate();}
 }
 function updateSkip(){
   var w=document.getElementById('skipWrap');if(!w)return;
@@ -475,7 +665,7 @@ async function joinTable(code,silent){
       var pl=await S.db.collection('games/'+code+'/players').get();
       var ids=pl.docs.map(function(d){return d.id;});
       if(ids.indexOf(S.pid)<0){
-        if(ids.length>=4)throw new Error('That table is full.');
+        if(ids.length>=7)throw new Error('That table is full.');
         await S.db.doc('games/'+code+'/players/'+S.pid).set({name:(S.name||'').trim()||'Player',joinedAt:Date.now()});
       }
     }else if((g.order||[]).indexOf(S.pid)<0){
@@ -490,8 +680,8 @@ async function joinTable(code,silent){
   }
 }
 async function startGame(){
-  var ps=S.players.slice(0,4);
-  if(ps.length<2||!S.game||S.game.host!==S.pid)return;
+  var ps=S.players.slice(0,7);
+  if(ps.length<3||!S.game||S.game.host!==S.pid)return;
   var ng=newGame(ps.map(function(p){return {id:p.id,name:p.name};}),S.pid,S.game.seq||0);
   S.game=ng;S.screen='table';render();
   try{await S.gameRef.set(ng);}catch(e){toast('Could not deal. Try again.');}
@@ -528,9 +718,12 @@ function startPractice(n){
 /* ---------- events ---------- */
 app.addEventListener('input',function(e){
   if(e.target.id==='nameIn'){S.name=e.target.value.slice(0,14);lsSet('gofish.name',S.name);}
+  if(e.target.id==='pwIn')S.pwTry=e.target.value;
+  if(e.target.id==='pwNew')S.pwNew=e.target.value;
   if(e.target.id==='codeIn'){S.joinCode=e.target.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,4);e.target.value=S.joinCode;}
 });
 app.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&e.target.id==='pwIn')tryUnlock();
   if(e.key==='Enter'&&e.target.id==='codeIn'&&S.dbState==='yes'){
     if(needName()){if(S.joinCode.length===4)joinTable(S.joinCode);else{S.err='The code has four letters.';render();}}
   }
@@ -553,6 +746,13 @@ app.addEventListener('click',function(e){
     try{navigator.clipboard.writeText(S.code).then(done,fail);}catch(err){fail();}
   }
   else if(a==='target'){S.target=b.dataset.id;render();}
+  else if(a==='cel'){S.cel=b.dataset.v;lsSet('gofish.cel',S.cel);render();}
+  else if(a==='unlock')tryUnlock();
+  else if(a==='setpw')setPassword();
+  else if(a==='rmpw')removePassword();
+  else if(a==='preview')celebrate(S.cel,((S.name||'').trim()||'Your name')+' wins!');
+  else if(a==='previewlose')celebrate(S.cel,'Amina wins!','Better luck next time!','lose');
+  else if(a==='replay'){if(S.game&&S.game.winner)playWin(S.game);}
   else if(a==='card'){var r=rank(b.dataset.card);S.pick=(S.pick===r)?null:r;render();}
   else if(a==='ask'){
     var g=S.game,t=g&&currentTarget(g,me),pk=S.pick;
@@ -577,14 +777,23 @@ render();
     if(window.claude&&window.claude.use){
       var res=await Promise.all([window.claude.use('db'),window.claude.use('user')]);
       S.db=res[0];
+      S.isAdmin=!!(res[1]&&res[1].canEdit&&res[1].canEdit());
       if(res[1]){var id=await res[1].id();if(id)S.pid=String(id).replace(/[^A-Za-z0-9_.~:@+-]/g,'_').slice(0,120);}
     }
   }catch(e){}
   S.dbState=(S.db&&S.pid)?'yes':'no';
-  if(S.screen==='home')render();
-  if(S.dbState==='yes')tryResume();
+  if(S.dbState==='yes'){
+    var first=true;
+    var onAcc=function(snap){
+      S.access=snap.exists?snap.data():null;
+      if(S.screen==='home')render();
+      if(first){first=false;if(gateState()==='open')tryResume();}
+    };
+    try{S.db.doc('config/access').onSnapshot(onAcc,function(){onAcc({exists:false});});}
+    catch(e){onAcc({exists:false});}
+  }else if(S.screen==='home')render();
 })();
 })();
 </script>
-
-</body></html>
+</body>
+</html>
